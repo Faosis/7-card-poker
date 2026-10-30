@@ -1,0 +1,7 @@
+# Ignore dependency folders (NPM will recreate this on your server/Docker)
+node_modules/
+npm-debug.log*
+
+# Ignore system files
+.DS_Store
+Thumbs.db

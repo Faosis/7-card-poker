@@ -1,0 +1,14 @@
+{
+  "name": "7-hand-poker",
+  "version": "1.0.0",
+  "description": "MSN Messenger 7 Hand Poker Remake",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pokersolver": "^2.1.4",
+    "socket.io": "^4.7.5"
+  }
+}

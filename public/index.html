@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>MSN 7 Hand Poker</title>
+  <style>
+    * { box-sizing: border-box; touch-action: manipulation; user-select: none; }
+    body {
+      margin: 0; font-family: system-ui, sans-serif;
+      background: #0f3818; color: #fff;
+      display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+    }
+    header {
+      background: #08220e; padding: 8px 12px;
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 14px; border-bottom: 1px solid #1e522a;
+    }
+    .status-banner {
+      text-align: center; padding: 6px; font-weight: bold;
+      background: #174923; font-size: 14px;
+    }
+    .status-banner.my-turn { background: #eab308; color: #000; }
+    .board-container {
+      flex: 1; display: flex; flex-direction: column;
+      justify-content: space-between; padding: 6px; gap: 8px; overflow-y: auto;
+    }
+    .grid-7 {
+      display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+    }
+    .col {
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 6px; padding: 3px; min-height: 125px;
+      display: flex; flex-direction: column; align-items: center; position: relative;
+    }
+    .col.selectable { cursor: pointer; border-color: #eab308; background: rgba(234,179,8,0.12); }
+    .col.win { border: 2px solid #4ade80; background: rgba(74,222,128,0.15); }
+    .col.lose { border: 2px solid #f87171; background: rgba(248,113,113,0.15); }
+    .card {
+      width: 100%; height: 26px; border-radius: 4px;
+      background: #fff; color: #111; font-weight: 700; font-size: 13px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: -4px; border: 1px solid #ccc; box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    }
+    .card.red { color: #dc2626; }
+    .card.hidden {
+      background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+      color: #fff; border-color: #93c5fd;
+    }
+    .footer-bar {
+      background: #08220e; padding: 10px;
+      display: flex; justify-content: space-around; align-items: center;
+      border-top: 1px solid #1e522a;
+    }
+    .current-card-box {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .big-card {
+      width: 48px; height: 66px; border-radius: 6px; background: #fff;
+      color: #111; font-size: 22px; font-weight: bold;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.5);
+    }
+    .big-card.red { color: #dc2626; }
+    button {
+      background: #eab308; color: #000; border: none; padding: 8px 14px;
+      border-radius: 6px; font-weight: bold; cursor: pointer;
+    }
+    .hand-desc {
+      font-size: 9px; text-align: center; margin-top: 6px; color: #fde047; line-height: 1.1;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>🃏 <strong>MSN 7 Hand Poker</strong></div>
+    <div id="roomDisplay">Room: LOBBY</div>
+  </header>
+
+  <div id="statusBanner" class="status-banner">Connecting...</div>
+
+  <div class="board-container">
+    <div>
+      <div style="font-size:11px; margin-bottom:3px; opacity:0.8;">OPPONENT'S HANDS</div>
+      <div id="oppGrid" class="grid-7"></div>
+    </div>
+
+    <div>
+      <div style="font-size:11px; margin-bottom:3px; opacity:0.8;">YOUR HANDS (Tap column to place)</div>
+      <div id="myGrid" class="grid-7"></div>
+    </div>
+  </div>
+
+  <div class="footer-bar">
+    <div class="current-card-box">
+      <span>Next Card:</span>
+      <div id="nextCard" class="big-card">-</div>
+    </div>
+    <button id="rematchBtn" style="display:none;" onclick="socket.emit('rematch')">Rematch</button>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const suitSymbols = { s: '♠', h: '♥', d: '♦', c: '♣' };
+
+    const roomCode = prompt("Enter a Room Name to join/create:", "HOME") || "HOME";
+    document.getElementById('roomDisplay').textContent = `Room: ${roomCode.toUpperCase()}`;
+    socket.emit('joinRoom', roomCode);
+
+    function formatCard(code) {
+      if (!code || code === 'XX') return { text: '🂠', isRed: false, hidden: true };
+      const r = code[0] === 'T' ? '10' : code[0];
+      const s = suitSymbols[code[1]];
+      const isRed = code[1] === 'h' || code[1] === 'd';
+      return { text: `${r}${s}`, isRed, hidden: false };
+    }
+
+    socket.on('errorMsg', (msg) => alert(msg));
+
+    socket.on('gameState', (state) => {
+      const banner = document.getElementById('statusBanner');
+      const rematchBtn = document.getElementById('rematchBtn');
+      rematchBtn.style.display = state.gameOver ? 'block' : 'none';
+
+      if (state.waitingForOpponent) {
+        banner.textContent = "Waiting for Player 2 to join room...";
+        banner.className = "status-banner";
+      } else if (state.gameOver) {
+        const myWins = state.playerIdx === 0 ? state.results.p0Wins : state.results.p1Wins;
+        const oppWins = state.playerIdx === 0 ? state.results.p1Wins : state.results.p0Wins;
+        banner.textContent = myWins > oppWins
+          ? `🏆 YOU WIN! (${myWins} to ${oppWins})`
+          : myWins < oppWins ? `💀 YOU LOSE (${myWins} to ${oppWins})` : `🤝 DRAW (${myWins} to ${oppWins})`;
+        banner.className = "status-banner my-turn";
+      } else {
+        banner.textContent = state.isMyTurn ? "👉 YOUR TURN — Tap a highlighted column!" : "⏳ Opponent's Turn...";
+        banner.className = state.isMyTurn ? "status-banner my-turn" : "status-banner";
+      }
+
+      // Render Next Card
+      const nextEl = document.getElementById('nextCard');
+      if (state.myCurrentCard && !state.gameOver) {
+        const c = formatCard(state.myCurrentCard);
+        nextEl.textContent = c.text;
+        nextEl.className = `big-card ${c.isRed ? 'red' : ''}`;
+      } else {
+        nextEl.textContent = '-';
+        nextEl.className = 'big-card';
+      }
+
+      // Render Opponent Grid
+      const oppGrid = document.getElementById('oppGrid');
+      oppGrid.innerHTML = '';
+      state.oppBoard.forEach((col, cIdx) => {
+        const colDiv = document.createElement('div');
+        colDiv.className = 'col';
+        col.forEach(cardCode => {
+          const c = formatCard(cardCode);
+          const cardDiv = document.createElement('div');
+          cardDiv.className = `card ${c.hidden ? 'hidden' : (c.isRed ? 'red' : '')}`;
+          cardDiv.textContent = c.text;
+          colDiv.appendChild(cardDiv);
+        });
+        if (state.gameOver && state.results) {
+          const desc = document.createElement('div');
+          desc.className = 'hand-desc';
+          desc.textContent = state.playerIdx === 0 ? state.results.p1Desc[cIdx] : state.results.p0Desc[cIdx];
+          colDiv.appendChild(desc);
+        }
+        oppGrid.appendChild(colDiv);
+      });
+
+      // Render My Grid
+      const myGrid = document.getElementById('myGrid');
+      myGrid.innerHTML = '';
+      const minLen = Math.min(...state.myBoard.map(c => c.length));
+
+      state.myBoard.forEach((col, cIdx) => {
+        const colDiv = document.createElement('div');
+        const canPlace = state.isMyTurn && col.length < 5 && col.length === minLen;
+        let resultClass = '';
+        if (state.gameOver && state.results) {
+          const w = state.results.colWinners[cIdx];
+          if (w === state.playerIdx) resultClass = 'win';
+          else if (w !== -1) resultClass = 'lose';
+        }
+        colDiv.className = `col ${canPlace ? 'selectable' : ''} ${resultClass}`;
+        if (canPlace) {
+          colDiv.onclick = () => socket.emit('placeCard', cIdx);
+        }
+
+        col.forEach(cardCode => {
+          const c = formatCard(cardCode);
+          const cardDiv = document.createElement('div');
+          cardDiv.className = `card ${c.isRed ? 'red' : ''}`;
+          cardDiv.textContent = c.text;
+          colDiv.appendChild(cardDiv);
+        });
+
+        if (state.gameOver && state.results) {
+          const desc = document.createElement('div');
+          desc.className = 'hand-desc';
+          desc.textContent = state.playerIdx === 0 ? state.results.p0Desc[cIdx] : state.results.p1Desc[cIdx];
+          colDiv.appendChild(desc);
+        }
+        myGrid.appendChild(colDiv);
+      });
+    });
+  </script>
+</body>
+</html>
